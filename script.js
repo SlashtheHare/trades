@@ -121,7 +121,7 @@ async function loadQueue() {
   try {
     const [lRes, cRes] = await Promise.all([
       fetch(`${base}/boards/${boardId}/lists?${auth}&fields=name,id`),
-      fetch(`${base}/boards/${boardId}/cards?${auth}&fields=name,idList,due,labels,url&attachments=true&attachment_fields=url,previews,name,mimeType`)
+      fetch(`${base}/boards/${boardId}/cards?${auth}&fields=name,idList,due,labels,url,desc&attachments=true&attachment_fields=url,previews,name,mimeType`)
     ]);
     if (!lRes.ok || !cRes.ok) throw new Error(`HTTP ${lRes.status}`);
 
@@ -195,7 +195,7 @@ function buildCard(card) {
     due = `<div class="card-due${cls}">Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>`;
   }
 
-  // Image strip from attachments
+  // Image strip from attachments — images are clickable for lightbox
   let imgStrip = '';
   const imageAttachments = (card.attachments || []).filter(a =>
     (a.mimeType && a.mimeType.startsWith('image/')) ||
@@ -206,14 +206,152 @@ function buildCard(card) {
       const src = (a.previews && a.previews.length)
         ? (a.previews.sort((x, y) => x.width - y.width).find(p => p.width >= 150)?.url || a.previews[0].url)
         : a.url;
-      return `<img class="card-img" src="${esc(src)}" alt="${esc(a.name || 'attachment')}" loading="lazy"/>`;
+      const fullSrc = a.url || src;
+      return `<img class="card-img" src="${esc(src)}" data-full="${esc(fullSrc)}" alt="${esc(a.name || 'attachment')}" loading="lazy" onclick="event.stopPropagation();openLightbox('${esc(fullSrc)}')"/>`;
     }).join('');
     imgStrip = `<div class="card-img-strip">${imgs}</div>`;
   }
 
-  const click = card.url ? ` onclick="window.open('${card.url}','_blank')"` : '';
-  return `<div class="trello-card"${click}>${labels}${imgStrip}<div class="card-name">${esc(card.name)}</div>${due}</div>`;
+  // Serialize card data for the detail overlay
+  const cardData = JSON.stringify({
+    name: card.name,
+    desc: card.desc || '',
+    url:  card.url  || '',
+    due:  card.due  || '',
+    labels: (card.labels || []).map(l => ({ name: l.name, color: l.color })),
+    images: imageAttachments.map(a => ({
+      thumb: (a.previews && a.previews.length)
+        ? (a.previews.sort((x, y) => y.width - x.width)[0]?.url || a.url)
+        : a.url,
+      full: a.url
+    }))
+  }).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+
+  return `<div class="trello-card">
+    ${labels}${imgStrip}
+    <div class="card-name">${esc(card.name)}</div>
+    ${due}
+    <div class="card-footer-row">
+      <button class="card-details-btn" onclick="event.stopPropagation();openCardDetail(this)" data-card="${cardData}">Show Details</button>
+      ${card.url ? `<a class="card-trello-link" href="${esc(card.url)}" target="_blank" onclick="event.stopPropagation()">Trello ↗</a>` : ''}
+    </div>
+  </div>`;
 }
+
+/* ════════════════════════════════
+   LIGHTBOX
+════════════════════════════════ */
+function openLightbox(src) {
+  let lb = document.getElementById('img-lightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'img-lightbox';
+    lb.innerHTML = `
+      <div class="lb-backdrop" onclick="closeLightbox()"></div>
+      <button class="lb-close" onclick="closeLightbox()">✕</button>
+      <img class="lb-img" src="" alt=""/>
+    `;
+    document.body.appendChild(lb);
+  }
+  lb.querySelector('.lb-img').src = src;
+  lb.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('img-lightbox');
+  if (lb) lb.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+/* ════════════════════════════════
+   CARD DETAIL OVERLAY
+════════════════════════════════ */
+function openCardDetail(btn) {
+  const colors = {
+    green:'#3a8a3a', yellow:'#b8a020', orange:'#c07010',
+    red:'#a01818', purple:'#7a3aaa', blue:'#1a4a9a',
+    sky:'#1a90a8', lime:'#3aaa6a', pink:'#b840a0', black:'#303040'
+  };
+
+  const raw = btn.getAttribute('data-card')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const card = JSON.parse(raw);
+
+  let overlay = document.getElementById('card-detail-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'card-detail-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  const labelHtml = card.labels.length
+    ? card.labels.map(l =>
+        `<span class="cd-label-pill" style="background:${colors[l.color] || '#888'}">${esc(l.name || '')}</span>`
+      ).join('')
+    : '<span class="cd-no-labels">No labels</span>';
+
+  const dueHtml = card.due
+    ? (() => {
+        const d = new Date(card.due);
+        const cls = d < new Date() ? ' overdue' : '';
+        return `<div class="cd-due${cls}">Due ${d.toLocaleDateString('en-US', { weekday:'short', month:'long', day:'numeric', year:'numeric' })}</div>`;
+      })()
+    : '';
+
+  const imgHtml = card.images.length
+    ? `<div class="cd-images">${card.images.map(img =>
+        `<img class="cd-img" src="${esc(img.thumb)}" data-full="${esc(img.full)}" alt="attachment" loading="lazy"
+          onclick="closeCardDetail();openLightbox('${esc(img.full)}')" />`
+      ).join('')}</div>`
+    : '';
+
+  const descHtml = card.desc
+    ? `<div class="cd-section-label">Notes</div>
+       <div class="cd-desc">${esc(card.desc).replace(/\n/g, '<br/>')}</div>`
+    : '';
+
+  overlay.innerHTML = `
+    <div class="cd-backdrop" onclick="closeCardDetail()"></div>
+    <div class="cd-panel">
+      <div class="cd-header">
+        <span class="cd-eyebrow">Case File</span>
+        <button class="cd-close" onclick="closeCardDetail()">✕</button>
+      </div>
+      <div class="cd-body">
+        <h2 class="cd-title">${esc(card.name)}</h2>
+        ${dueHtml}
+        <div class="cd-section-label">Labels</div>
+        <div class="cd-labels">${labelHtml}</div>
+        ${descHtml}
+        ${card.images.length ? `<div class="cd-section-label">Attachments</div>${imgHtml}` : ''}
+        ${card.url
+          ? `<a class="cd-trello-btn" href="${esc(card.url)}" target="_blank">Open on Trello ↗</a>`
+          : ''}
+      </div>
+    </div>
+  `;
+
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  // fade in images
+  overlay.querySelectorAll('.cd-img').forEach(img => {
+    if (img.complete) img.classList.add('loaded');
+    else img.addEventListener('load', () => img.classList.add('loaded'), { once: true });
+  });
+}
+
+function closeCardDetail() {
+  const ov = document.getElementById('card-detail-overlay');
+  if (ov) ov.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Close overlays on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeLightbox(); closeCardDetail(); }
+});
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>

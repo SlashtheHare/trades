@@ -724,6 +724,194 @@ body {
 
 @media (max-width:560px) { .willwont-cols { grid-template-columns: 1fr; } }
 
+/* ═══════════════════════════════════
+   CARD FOOTER ROW (details + trello link)
+═══════════════════════════════════ */
+.card-footer-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.4rem; flex-wrap: wrap;
+}
+.card-details-btn {
+  font-family: 'Oswald', sans-serif;
+  font-size: 0.56rem; letter-spacing: 0.18em; text-transform: uppercase;
+  background: var(--paper2); border: 1px solid var(--paper-dark);
+  color: var(--faded); cursor: pointer; padding: 0.15rem 0.45rem;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.card-details-btn:hover {
+  background: var(--ink); color: var(--paper); border-color: var(--ink);
+}
+.card-trello-link {
+  font-family: 'Oswald', sans-serif;
+  font-size: 0.56rem; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--faded); text-decoration: none;
+  transition: color 0.15s;
+}
+.card-trello-link:hover { color: var(--red2); }
+
+/* make card images show a zoom cursor */
+.card-img { cursor: zoom-in; }
+
+/* ═══════════════════════════════════
+   IMAGE LIGHTBOX
+═══════════════════════════════════ */
+#img-lightbox {
+  display: none; position: fixed; inset: 0; z-index: 9000;
+  align-items: center; justify-content: center;
+}
+#img-lightbox.open { display: flex; }
+
+.lb-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(14,12,10,0.92);
+  backdrop-filter: blur(4px);
+  cursor: zoom-out;
+}
+.lb-close {
+  position: absolute; top: 1rem; right: 1.25rem;
+  background: none; border: 2px solid var(--paper-dark);
+  color: var(--paper); font-size: 1rem; cursor: pointer;
+  width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center;
+  font-family: 'Oswald', sans-serif; z-index: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.lb-close:hover { background: var(--red); border-color: var(--red); }
+.lb-img {
+  position: relative; z-index: 1;
+  max-width: 92vw; max-height: 90vh;
+  object-fit: contain;
+  border: 2px solid var(--paper-dark);
+  box-shadow: 0 0 60px rgba(0,0,0,0.8);
+  animation: lb-pop 0.18s ease both;
+}
+@keyframes lb-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ═══════════════════════════════════
+   CARD DETAIL OVERLAY
+═══════════════════════════════════ */
+#card-detail-overlay {
+  display: none; position: fixed; inset: 0; z-index: 8500;
+  align-items: center; justify-content: center;
+}
+#card-detail-overlay.open { display: flex; }
+
+.cd-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(14,12,10,0.88);
+  backdrop-filter: blur(3px);
+  cursor: pointer;
+}
+.cd-panel {
+  position: relative; z-index: 1;
+  background: var(--paper);
+  border: 2px solid var(--ink2);
+  box-shadow: 6px 6px 0 var(--ink), 12px 12px 0 rgba(0,0,0,0.35);
+  width: min(520px, 94vw);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  animation: lb-pop 0.18s ease both;
+  /* lined paper texture */
+  background-image: repeating-linear-gradient(
+    0deg, transparent, transparent 23px,
+    rgba(100,80,60,0.07) 23px, rgba(100,80,60,0.07) 24px
+  );
+}
+.cd-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.55rem 1rem;
+  border-bottom: 2px solid var(--ink2);
+  background: var(--paper2); flex-shrink: 0;
+}
+.cd-eyebrow {
+  font-family: 'Oswald', sans-serif; font-size: 0.6rem;
+  letter-spacing: 0.35em; text-transform: uppercase; color: var(--faded);
+}
+.cd-close {
+  background: none; border: 1px solid var(--paper-dark);
+  color: var(--faded); font-size: 0.8rem; cursor: pointer;
+  width: 1.6rem; height: 1.6rem;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Oswald', sans-serif;
+  transition: background 0.15s, color 0.15s;
+}
+.cd-close:hover { background: var(--red); color: var(--paper); border-color: var(--red); }
+
+.cd-body {
+  padding: 1.25rem 1.4rem 1.5rem;
+  overflow-y: auto; flex: 1;
+  scrollbar-width: thin; scrollbar-color: var(--paper-dark) var(--paper2);
+}
+.cd-body::-webkit-scrollbar { width: 4px; }
+.cd-body::-webkit-scrollbar-track { background: var(--paper2); }
+.cd-body::-webkit-scrollbar-thumb { background: var(--paper-dark); }
+
+.cd-title {
+  font-family: 'Special Elite', serif;
+  font-size: 1.25rem; color: var(--ink); line-height: 1.25;
+  margin-bottom: 0.5rem;
+}
+.cd-due {
+  font-size: 0.72rem; color: var(--faded);
+  font-family: 'Courier Prime', monospace;
+  margin-bottom: 0.85rem; letter-spacing: 0.06em;
+}
+.cd-due.overdue { color: var(--red2); font-weight: 700; }
+
+.cd-section-label {
+  font-family: 'Oswald', sans-serif; font-size: 0.58rem;
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--faded);
+  margin: 0.9rem 0 0.4rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.cd-section-label::after { content:''; flex:1; height:1px; background:var(--paper-dark); }
+
+.cd-labels { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.2rem; }
+.cd-label-pill {
+  font-family: 'Oswald', sans-serif; font-size: 0.6rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: #fff; padding: 0.15rem 0.55rem; border-radius: 2px;
+}
+.cd-no-labels { font-size: 0.75rem; color: var(--faded); font-style: italic; }
+
+.cd-desc {
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.82rem; color: var(--ink2); line-height: 1.65;
+  background: var(--paper2);
+  border-left: 3px solid var(--paper-dark);
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.2rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cd-images {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.1rem;
+}
+.cd-img {
+  height: 130px; width: auto; max-width: 240px;
+  object-fit: cover;
+  border: 2px solid var(--paper-dark);
+  cursor: zoom-in;
+  opacity: 0; transition: opacity 0.25s, border-color 0.15s, transform 0.15s;
+  flex-shrink: 0;
+}
+.cd-img.loaded { opacity: 1; }
+.cd-img:hover { border-color: var(--red2); transform: scale(1.02); }
+
+.cd-trello-btn {
+  display: inline-block; margin-top: 1.1rem;
+  font-family: 'Oswald', sans-serif; font-size: 0.62rem;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink); text-decoration: none;
+  border: 1px solid var(--ink2); padding: 0.3rem 0.75rem;
+  background: var(--paper2);
+  transition: background 0.15s, color 0.15s;
+}
+.cd-trello-btn:hover { background: var(--ink); color: var(--paper); }
+
 /* ── FOOTER ── */
 footer {
   margin-top: 3rem; text-align: center;
