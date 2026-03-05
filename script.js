@@ -159,7 +159,7 @@ async function loadQueue() {
         </div>
         <div class="trello-cards">${lc.length
           ? lc.map(buildCard).join('')
-          : '<span style="font-size:0.68rem;color:var(--faded);font-style:italic;">— empty —</span>'
+          : '<span style="font-size:0.68rem;color:var(--faded);font-style:italic;display:block;text-align:center;">— empty —</span>'
         }</div>
       </div>`;
     });

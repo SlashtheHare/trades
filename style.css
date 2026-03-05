@@ -540,8 +540,12 @@ body {
   padding: 0.45rem 0.8rem;
   font-family: 'Oswald', sans-serif; font-size: 0.6rem;
   letter-spacing: 0.22em; text-transform: uppercase;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
   border-bottom: 2px solid;
+}
+.trello-list-header .count {
+  position: absolute; right: 0.8rem;
 }
 .trello-list-header .count {
   background: rgba(0,0,0,0.1); padding: 0.05rem 0.35rem; font-size: 0.62rem;
@@ -568,6 +572,7 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--paper-dark) var(--paper2);
   border-radius: 1px;
+  justify-content: center;
 }
 .card-img-strip::-webkit-scrollbar { height: 3px; }
 .card-img-strip::-webkit-scrollbar-track { background: var(--paper2); }
@@ -593,6 +598,7 @@ body {
   cursor: pointer;
   transition: border-left-color 0.15s, transform 0.12s, box-shadow 0.12s;
   position: relative;
+  text-align: center;
 }
 .trello-card:hover {
   border-left-color: var(--red2);
@@ -604,7 +610,7 @@ body {
   font-size: 0.6rem; color: var(--faded); margin-top: 0.15rem; letter-spacing: 0.08em;
 }
 .trello-card .card-due.overdue { color: var(--red2); font-weight: 700; }
-.trello-card .card-labels { display:flex; flex-wrap:wrap; gap:2px; margin-bottom:0.25rem; }
+.trello-card .card-labels { display:flex; flex-wrap:wrap; gap:2px; margin-bottom:0.25rem; justify-content: center; }
 .card-label-pill { height: 4px; width: 22px; border-radius: 2px; }
 
 .queue-loading, .queue-error, .queue-empty {
@@ -729,7 +735,7 @@ body {
 ═══════════════════════════════════ */
 .card-footer-row {
   display: flex; align-items: center; gap: 0.5rem;
-  margin-top: 0.4rem; flex-wrap: wrap;
+  margin-top: 0.4rem; flex-wrap: wrap; justify-content: center;
 }
 .card-details-btn {
   font-family: 'Oswald', sans-serif;
