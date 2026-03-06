@@ -184,7 +184,7 @@ function buildCard(card) {
 
   const labels = card.labels?.length
     ? `<div class="card-labels">${card.labels.map(l =>
-        `<span class="card-label-pill" style="background:${colors[l.color] || '#888'}" title="${esc(l.name)}"></span>`
+        `<span class="card-label-pill" style="background:${colors[l.color] || '#888'}">${esc(l.name || l.color || '')}</span>`
       ).join('')}</div>`
     : '';
 
@@ -253,7 +253,15 @@ function openLightbox(src) {
     `;
     document.body.appendChild(lb);
   }
-  lb.querySelector('.lb-img').src = src;
+  const img = lb.querySelector('.lb-img');
+  // Clear src first to prevent the browser from re-firing the cached image
+  // and re-triggering the pop animation on the previous image
+  img.src = '';
+  // Force a reflow so the animation re-triggers cleanly on the new src
+  img.classList.remove('lb-anim');
+  void img.offsetWidth;
+  img.classList.add('lb-anim');
+  img.src = src;
   lb.classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -289,7 +297,7 @@ function openCardDetail(btn) {
     ? card.labels.map(l =>
         `<span class="cd-label-pill" style="background:${colors[l.color] || '#888'}">${esc(l.name || '')}</span>`
       ).join('')
-    : '<span class="cd-no-labels">No labels</span>';
+    : '<span class="cd-no-labels">Not started</span>';
 
   const dueHtml = card.due
     ? (() => {
@@ -321,7 +329,7 @@ function openCardDetail(btn) {
       <div class="cd-body">
         <h2 class="cd-title">${esc(card.name)}</h2>
         ${dueHtml}
-        <div class="cd-section-label">Labels</div>
+        <div class="cd-section-label">Status</div>
         <div class="cd-labels">${labelHtml}</div>
         ${descHtml}
         ${card.images.length ? `<div class="cd-section-label">Attachments</div>${imgHtml}` : ''}
