@@ -240,7 +240,7 @@ body {
   font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ink); font-weight: 600;
 }
-.social-link-card.wide { grid-column: 1 / -1; }
+.social-link-card.wide { grid-column: span 2; }
 .slc-discord {
   font-size: 0.72rem; color: var(--faded);
   font-family: 'Courier Prime', monospace;
