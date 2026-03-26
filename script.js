@@ -204,7 +204,7 @@ function buildCard(card) {
   if (imageAttachments.length > 0) {
     const imgs = imageAttachments.map(a => {
       const src = (a.previews && a.previews.length)
-        ? (a.previews.sort((x, y) => x.width - y.width).find(p => p.width >= 150)?.url || a.previews[0].url)
+        ? a.previews.sort((x, y) => y.width - x.width)[0].url
         : a.url;
       const fullSrc = a.url || src;
       return `<img class="card-img" src="${esc(src)}" data-full="${esc(fullSrc)}" alt="${esc(a.name || 'attachment')}" loading="lazy" onclick="event.stopPropagation();openLightbox('${esc(fullSrc)}')"/>`;
