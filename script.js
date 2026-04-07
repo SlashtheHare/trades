@@ -175,6 +175,39 @@ async function loadQueue() {
   }
 }
 
+/* ════════════════════════════════
+   LINK EXTRACTION HELPERS
+════════════════════════════════ */
+// Pull all http(s) URLs out of a string
+function extractLinks(text) {
+  if (!text) return [];
+  const matches = text.match(/https?:\/\/[^\s\)\]\>\"\']+/g) || [];
+  // Deduplicate
+  return [...new Set(matches)];
+}
+
+// Turn a URL into a short human-readable label
+function linkLabel(url) {
+  try {
+    const u = new URL(url);
+    // Strip www., keep host + truncated path
+    const host = u.hostname.replace(/^www\./, '');
+    const path = u.pathname.replace(/\/$/, '');
+    const label = path ? host + path : host;
+    return label.length > 45 ? label.slice(0, 43) + '…' : label;
+  } catch {
+    return url.length > 45 ? url.slice(0, 43) + '…' : url;
+  }
+}
+
+// Render a small links section
+function renderLinkPills(links) {
+  if (!links.length) return '';
+  return `<div class="card-links">${links.map(u =>
+    `<a class="card-link-pill" href="${esc(u)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(linkLabel(u))}</a>`
+  ).join('')}</div>`;
+}
+
 function buildCard(card) {
   const colors = {
     green:  '#3a8a3a', yellow: '#b8a020', orange: '#c07010',
@@ -212,6 +245,14 @@ function buildCard(card) {
     imgStrip = `<div class="card-img-strip">${imgs}</div>`;
   }
 
+  // Collect links: URLs from description + non-image URL attachments
+  const descLinks = extractLinks(card.desc || '');
+  const attachLinks = (card.attachments || [])
+    .filter(a => !imageAttachments.includes(a) && a.url && a.url.startsWith('http'))
+    .map(a => a.url);
+  const allLinks = [...new Set([...descLinks, ...attachLinks])];
+  const linkPills = renderLinkPills(allLinks);
+
   // Serialize card data for the detail overlay
   const cardData = JSON.stringify({
     name: card.name,
@@ -219,6 +260,7 @@ function buildCard(card) {
     url:  card.url  || '',
     due:  card.due  || '',
     labels: (card.labels || []).map(l => ({ name: l.name, color: l.color })),
+    links: allLinks,
     images: imageAttachments.map(a => ({
       thumb: (a.previews && a.previews.length)
         ? (a.previews.sort((x, y) => y.width - x.width)[0]?.url || a.url)
@@ -319,6 +361,13 @@ function openCardDetail(btn) {
        <div class="cd-desc">${esc(card.desc).replace(/\n/g, '<br/>')}</div>`
     : '';
 
+  const linksHtml = (card.links && card.links.length)
+    ? `<div class="cd-section-label">Links</div>
+       <div class="cd-links">${card.links.map(u =>
+         `<a class="cd-link-pill" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(linkLabel(u))}</a>`
+       ).join('')}</div>`
+    : '';
+
   overlay.innerHTML = `
     <div class="cd-backdrop" onclick="closeCardDetail()"></div>
     <div class="cd-panel">
@@ -332,6 +381,7 @@ function openCardDetail(btn) {
         <div class="cd-section-label">Status</div>
         <div class="cd-labels">${labelHtml}</div>
         ${descHtml}
+        ${linksHtml}
         ${card.images.length ? `<div class="cd-section-label">Attachments</div>${imgHtml}` : ''}
         ${card.url
           ? `<a class="cd-trello-btn" href="${esc(card.url)}" target="_blank">Open on Trello ↗</a>`

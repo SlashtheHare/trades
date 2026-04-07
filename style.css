@@ -968,3 +968,48 @@ footer a:hover { color: var(--paper-dark); }
   .folder-tab { padding:0.35rem 0.7rem; font-size:0.68rem; }
   .case-stamp { display:none; }
 }
+
+/* ── CARD LINK PILLS (queue cards) ── */
+.card-links {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  margin: 0.35rem 0 0.1rem;
+}
+.card-link-pill {
+  display: inline-block;
+  font-family: 'Courier Prime', monospace; font-size: 0.6rem;
+  color: var(--ink2); text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--paper2);
+  padding: 0.15rem 0.45rem;
+  border-radius: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.card-link-pill:hover {
+  border-color: var(--red2); color: var(--red2);
+  background: var(--paper);
+}
+.card-link-pill::before { content: '↗ '; }
+
+/* ── DETAIL OVERLAY LINK PILLS ── */
+.cd-links {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+.cd-link-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-family: 'Courier Prime', monospace; font-size: 0.68rem;
+  color: var(--ink2); text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--paper2);
+  padding: 0.25rem 0.6rem;
+  border-radius: 2px;
+  word-break: break-all;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.cd-link-pill:hover {
+  border-color: var(--red2); color: var(--red2);
+  background: var(--paper);
+}
+.cd-link-pill::before { content: '↗'; font-size: 0.7rem; }
