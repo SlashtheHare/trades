@@ -235,6 +235,23 @@ async function trelloRequest(method, path, body = null) {
   return res.json();
 }
 
+/* ── Upload a file blob as an attachment ── */
+async function uploadAttachmentFile(cardId, blob, filename) {
+  const { apiKey, token } = TRELLO;
+  const form = new FormData();
+  form.append('file', blob, filename || 'pasted-image.png');
+  form.append('name', filename || 'pasted-image.png');
+  const res = await fetch(
+    `https://api.trello.com/1/cards/${cardId}/attachments?key=${apiKey}&token=${token}`,
+    { method: 'POST', body: form }
+  );
+  if (!res.ok) {
+    const txt = await res.text().catch(() => res.status);
+    throw new Error(`Trello upload → ${res.status}: ${txt}`);
+  }
+  return res.json();
+}
+
 /* ── Add label to card ── */
 async function addLabelToCard(cardId, labelId) {
   await trelloRequest('POST', `/cards/${cardId}/idLabels?value=${encodeURIComponent(labelId)}`);
@@ -342,7 +359,14 @@ function ensureAdminModals() {
         </div>
         <div class="admin-modal-body">
           <input id="aam-card-id" type="hidden"/>
-          <label class="admin-label">URL <span class="admin-req">*</span></label>
+          <!-- Paste zone -->
+          <div id="aam-paste-zone" class="admin-paste-zone" tabindex="0">
+            <span id="aam-paste-hint">📋 Click here then paste an image (Ctrl+V / ⌘V)</span>
+            <img id="aam-paste-preview" src="" alt="pasted" style="display:none;max-width:100%;max-height:160px;border-radius:4px;margin-top:0.5rem;"/>
+            <button id="aam-paste-clear" style="display:none;margin-top:0.4rem;font-size:0.7rem;background:none;border:1px solid var(--faded);color:var(--faded);border-radius:3px;padding:2px 8px;cursor:pointer;" onclick="clearPastedImage()">✕ Clear</button>
+          </div>
+          <div class="admin-attach-or"><span>— or attach by URL —</span></div>
+          <label class="admin-label">URL <span class="admin-hint">(optional if image pasted above)</span></label>
           <input id="aam-url" class="admin-input" type="url" placeholder="https://…"/>
           <label class="admin-label">Label / Name <span class="admin-hint">(optional)</span></label>
           <input id="aam-name" class="admin-input" type="text" placeholder="e.g. Reference image"/>
@@ -393,6 +417,36 @@ function ensureAdminModals() {
     if (this.value.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)) {
       img.src = this.value; prev.style.display = '';
     } else { prev.style.display = 'none'; }
+  });
+
+  // Paste zone — global paste listener (active when modal is open)
+  document.addEventListener('paste', function(e) {
+    const modal = document.getElementById('admin-attach-modal');
+    if (!modal || modal.style.display === 'none') return;
+    const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) return;
+        window._aamPastedBlob = blob;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const preview = document.getElementById('aam-paste-preview');
+          const hint    = document.getElementById('aam-paste-hint');
+          const clearBtn = document.getElementById('aam-paste-clear');
+          const zone    = document.getElementById('aam-paste-zone');
+          preview.src = ev.target.result;
+          preview.style.display = 'block';
+          hint.style.display = 'none';
+          clearBtn.style.display = 'inline-block';
+          zone.classList.add('has-image');
+        };
+        reader.readAsDataURL(blob);
+        break;
+      }
+    }
   });
 }
 
@@ -498,9 +552,24 @@ function openAttachModal(cardId) {
   document.getElementById('aam-name').value = '';
   document.getElementById('aam-preview').style.display = 'none';
   document.getElementById('aam-error').style.display = 'none';
+  // Reset paste zone
+  clearPastedImage();
   document.getElementById('admin-attach-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-  setTimeout(() => document.getElementById('aam-url').focus(), 50);
+  // Focus paste zone so global paste fires immediately
+  setTimeout(() => document.getElementById('aam-paste-zone').focus(), 50);
+}
+
+function clearPastedImage() {
+  window._aamPastedBlob = null;
+  const preview  = document.getElementById('aam-paste-preview');
+  const hint     = document.getElementById('aam-paste-hint');
+  const clearBtn = document.getElementById('aam-paste-clear');
+  const zone     = document.getElementById('aam-paste-zone');
+  if (preview)  { preview.src = ''; preview.style.display = 'none'; }
+  if (hint)     hint.style.display = '';
+  if (clearBtn) clearBtn.style.display = 'none';
+  if (zone)     zone.classList.remove('has-image');
 }
 
 async function submitAddAttachment() {
@@ -508,13 +577,30 @@ async function submitAddAttachment() {
   const url    = document.getElementById('aam-url').value.trim();
   const name   = document.getElementById('aam-name').value.trim();
   const errEl  = document.getElementById('aam-error');
-  if (!url) { showAdminError(errEl, 'URL is required.'); return; }
+  const blob   = window._aamPastedBlob || null;
+
+  if (!blob && !url) { showAdminError(errEl, 'Paste an image or enter a URL.'); return; }
   errEl.style.display = 'none';
+
+  const submitBtn = document.querySelector('#admin-attach-modal .admin-btn-primary');
+  if (submitBtn) { submitBtn.textContent = 'Attaching…'; submitBtn.disabled = true; }
+
   try {
-    await addAttachmentToCard(cardId, url, name);
+    if (blob) {
+      const ext = blob.type.split('/')[1] || 'png';
+      const filename = name ? `${name}.${ext}` : `pasted-image.${ext}`;
+      await uploadAttachmentFile(cardId, blob, filename);
+      // Also attach URL if one was provided
+      if (url) await addAttachmentToCard(cardId, url, name || url);
+    } else {
+      await addAttachmentToCard(cardId, url, name);
+    }
+    window._aamPastedBlob = null;
     closeAdminModal('admin-attach-modal');
   } catch(e) {
     showAdminError(errEl, 'Failed: ' + e.message);
+  } finally {
+    if (submitBtn) { submitBtn.textContent = 'Attach'; submitBtn.disabled = false; }
   }
 }
 

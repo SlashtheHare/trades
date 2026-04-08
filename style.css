@@ -1327,3 +1327,48 @@ footer a:hover { color: var(--paper-dark); }
   color: var(--faded);
   margin: 0;
 }
+
+/* ── Paste Zone ── */
+.admin-paste-zone {
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  outline: none;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+.admin-paste-zone:focus,
+.admin-paste-zone:hover {
+  border-color: var(--manila);
+  background: rgba(200,180,120,0.06);
+}
+.admin-paste-zone.has-image {
+  border-color: #3a8a3a;
+  border-style: solid;
+}
+#aam-paste-hint {
+  font-size: 0.78rem;
+  color: var(--faded);
+}
+.admin-attach-or {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.1rem;
+  color: var(--faded);
+  font-size: 0.72rem;
+}
+.admin-attach-or::before,
+.admin-attach-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
