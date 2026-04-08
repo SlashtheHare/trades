@@ -89,7 +89,7 @@ function buildGallery(images, thumbsId, mainImgId) {
 ════════════════════════════════ */
 const TRELLO = {
   apiKey:  'ce6649368393f966fd02936780bb489e',
-  token:   'ATTA8b168cbec6b811ab91f0752e2de6fc3424c0791612683a04235fd470cadf00702B59DB42',
+  token:   'ATTA442550ef487a3c20985aef122d65795a5be04f94fe981f88fb2d5bbca6ee2147710D6253',
   boardId: 'gsqAd4Xw',
   hideLists: [],
   listColours: {
