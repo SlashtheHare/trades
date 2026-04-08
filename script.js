@@ -89,9 +89,9 @@ function buildGallery(images, thumbsId, mainImgId) {
 ════════════════════════════════ */
 const TRELLO = {
   apiKey:  'ce6649368393f966fd02936780bb489e',
-  token:   'ATTA8b168cbec6b811ab91f0752e2de6fc3424c0791612683a04235fd470cadf00702B59DB42',           // add OAuth token here if board is private
+  token:   'ATTA8b168cbec6b811ab91f0752e2de6fc3424c0791612683a04235fd470cadf00702B59DB42',
   boardId: 'gsqAd4Xw',
-  hideLists: [],         // e.g. ['Archive'] to hide specific lists
+  hideLists: [],
   listColours: {
     'to do':       'list-todo',
     'queue':       'list-todo',
@@ -110,6 +110,452 @@ const TRELLO = {
 };
 
 /* ════════════════════════════════
+   ADMIN STATE
+════════════════════════════════ */
+let adminMode = false;
+let boardLabels = [];
+
+const ADMIN_KEY  = 'slash_admin_auth';
+const ADMIN_HASH = 'cbe6beb26479b568e5f15b50217c6c83c0ee051dc4e522b9840d8e291d6aaf46';
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function fetchBoardLabels() {
+  if (boardLabels.length) return;
+  const { apiKey, token, boardId } = TRELLO;
+  const res = await fetch(
+    `https://api.trello.com/1/boards/${boardId}/labels?key=${apiKey}&token=${token}&limit=50`
+  );
+  if (res.ok) boardLabels = await res.json();
+}
+
+function applyAdminMode(active) {
+  adminMode = active;
+  const btn = document.getElementById('admin-toggle-btn');
+  if (btn) {
+    btn.textContent = active ? '🔒 Exit Admin' : '⚙ Admin';
+    btn.classList.toggle('admin-active', active);
+  }
+  const bar = document.getElementById('admin-mode-bar');
+  if (bar) bar.style.display = active ? 'flex' : 'none';
+  document.getElementById('queue-output').innerHTML =
+    '<div class="queue-loading"><div class="spinner"></div><br/>Reloading…</div>';
+  loadQueue();
+}
+
+function toggleAdminMode() {
+  if (adminMode) {
+    localStorage.removeItem(ADMIN_KEY);
+    applyAdminMode(false);
+    return;
+  }
+  if (localStorage.getItem(ADMIN_KEY) === 'true') {
+    applyAdminMode(true);
+    return;
+  }
+  openAdminPasswordModal();
+}
+
+function openAdminPasswordModal() {
+  let modal = document.getElementById('admin-pw-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'admin-pw-modal';
+    modal.className = 'admin-pw-backdrop';
+    modal.innerHTML = `
+      <div class="admin-pw-panel">
+        <div class="admin-pw-header">
+          <span class="admin-pw-eyebrow">⚙ Admin Access</span>
+          <button class="admin-modal-close" onclick="closeAdminPasswordModal()">✕</button>
+        </div>
+        <div class="admin-pw-body">
+          <p class="admin-pw-hint">Enter the passphrase to unlock admin controls.</p>
+          <input id="admin-pw-input" class="admin-input" type="password" placeholder="Passphrase…" autocomplete="current-password"/>
+          <div id="admin-pw-error" class="admin-error" style="display:none">Incorrect passphrase.</div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminPasswordModal()">Cancel</button>
+          <button class="admin-btn-primary" onclick="submitAdminPassword()">Unlock</button>
+        </div>
+      </div>
+    `;
+    modal.addEventListener('click', e => { if (e.target === modal) closeAdminPasswordModal(); });
+    document.body.appendChild(modal);
+    document.getElementById('admin-pw-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitAdminPassword();
+    });
+  }
+  document.getElementById('admin-pw-input').value = '';
+  document.getElementById('admin-pw-error').style.display = 'none';
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('admin-pw-input').focus(), 50);
+}
+
+function closeAdminPasswordModal() {
+  const modal = document.getElementById('admin-pw-modal');
+  if (modal) { modal.style.display = 'none'; document.body.style.overflow = ''; }
+}
+
+async function submitAdminPassword() {
+  const input = document.getElementById('admin-pw-input').value;
+  const errEl = document.getElementById('admin-pw-error');
+  const hash  = await sha256(input);
+  if (hash === ADMIN_HASH) {
+    localStorage.setItem(ADMIN_KEY, 'true');
+    closeAdminPasswordModal();
+    applyAdminMode(true);
+  } else {
+    errEl.style.display = '';
+    document.getElementById('admin-pw-input').value = '';
+    document.getElementById('admin-pw-input').focus();
+  }
+}
+
+if (localStorage.getItem(ADMIN_KEY) === 'true') {
+  document.addEventListener('DOMContentLoaded', () => applyAdminMode(true));
+}
+
+/* ════════════════════════════════
+   TRELLO WRITE HELPERS
+════════════════════════════════ */
+async function trelloRequest(method, path, body = null) {
+  const { apiKey, token } = TRELLO;
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `https://api.trello.com/1${path}${sep}key=${apiKey}&token=${token}`;
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => res.status);
+    throw new Error(`Trello ${method} ${path} → ${res.status}: ${txt}`);
+  }
+  return res.json();
+}
+
+/* ── Add label to card ── */
+async function addLabelToCard(cardId, labelId) {
+  await trelloRequest('POST', `/cards/${cardId}/idLabels?value=${encodeURIComponent(labelId)}`);
+  refreshQueue();
+}
+
+/* ── Remove label from card ── */
+async function removeLabelFromCard(cardId, labelId) {
+  await trelloRequest('DELETE', `/cards/${cardId}/idLabels/${labelId}`);
+  refreshQueue();
+}
+
+/* ── Add attachment (image URL or embed link) to card ── */
+async function addAttachmentToCard(cardId, url, name) {
+  await trelloRequest('POST', `/cards/${cardId}/attachments`, { url, name: name || url });
+  refreshQueue();
+}
+
+/* ── Update card description ── */
+async function updateCardDesc(cardId, desc) {
+  await trelloRequest('PUT', `/cards/${cardId}`, { desc });
+  refreshQueue();
+}
+
+/* ── Create a new card in a list ── */
+async function createCard(listId, name, desc, attachmentUrl) {
+  const card = await trelloRequest('POST', `/cards`, { idList: listId, name, desc: desc || '' });
+  if (attachmentUrl && card.id) {
+    await trelloRequest('POST', `/cards/${card.id}/attachments`, { url: attachmentUrl });
+  }
+  refreshQueue();
+}
+
+/* ── Delete a card ── */
+async function deleteCard(cardId) {
+  await trelloRequest('DELETE', `/cards/${cardId}`);
+  refreshQueue();
+}
+
+function refreshQueue() {
+  document.getElementById('queue-output').innerHTML =
+    '<div class="queue-loading"><div class="spinner"></div><br/>Syncing…</div>';
+  loadQueue();
+}
+
+/* ════════════════════════════════
+   ADMIN MODALS
+════════════════════════════════ */
+function ensureAdminModals() {
+  if (document.getElementById('admin-modal-root')) return;
+  const root = document.createElement('div');
+  root.id = 'admin-modal-root';
+  root.innerHTML = `
+    <!-- ADD CARD MODAL -->
+    <div id="admin-add-card-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-add-card-modal')">
+      <div class="admin-modal-panel">
+        <div class="admin-modal-header">
+          <span>Add New Card</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-add-card-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <input id="acm-list-id" type="hidden"/>
+          <label class="admin-label">Card Name <span class="admin-req">*</span></label>
+          <input id="acm-name" class="admin-input" type="text" placeholder="e.g. Trade with SomeUser"/>
+          <label class="admin-label">Description / Notes</label>
+          <textarea id="acm-desc" class="admin-textarea" placeholder="Any notes, links, character info…"></textarea>
+          <label class="admin-label">Image / Embed URL <span class="admin-hint">(optional — attached to card)</span></label>
+          <input id="acm-img" class="admin-input" type="url" placeholder="https://…"/>
+          <div id="acm-preview" class="admin-img-preview" style="display:none"><img id="acm-preview-img" src="" alt="preview"/></div>
+          <div id="acm-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-add-card-modal')">Cancel</button>
+          <button class="admin-btn-primary" id="acm-submit" onclick="submitAddCard()">Add Card</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LABEL PICKER MODAL -->
+    <div id="admin-label-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-label-modal')">
+      <div class="admin-modal-panel admin-modal-sm">
+        <div class="admin-modal-header">
+          <span>Manage Labels</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-label-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <p class="admin-hint-text">Toggle labels on this card. Changes save to Trello instantly.</p>
+          <input id="alm-card-id" type="hidden"/>
+          <div id="alm-card-current-labels" type="hidden" style="display:none"></div>
+          <div id="alm-label-list" class="admin-label-list"></div>
+          <div id="alm-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-label-modal')">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD ATTACHMENT MODAL -->
+    <div id="admin-attach-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-attach-modal')">
+      <div class="admin-modal-panel admin-modal-sm">
+        <div class="admin-modal-header">
+          <span>Add Image / Embed</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-attach-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <input id="aam-card-id" type="hidden"/>
+          <label class="admin-label">URL <span class="admin-req">*</span></label>
+          <input id="aam-url" class="admin-input" type="url" placeholder="https://…"/>
+          <label class="admin-label">Label / Name <span class="admin-hint">(optional)</span></label>
+          <input id="aam-name" class="admin-input" type="text" placeholder="e.g. Reference image"/>
+          <div id="aam-preview" class="admin-img-preview" style="display:none"><img id="aam-preview-img" src="" alt="preview"/></div>
+          <div id="aam-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-attach-modal')">Cancel</button>
+          <button class="admin-btn-primary" onclick="submitAddAttachment()">Attach</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EDIT DESC MODAL -->
+    <div id="admin-desc-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-desc-modal')">
+      <div class="admin-modal-panel">
+        <div class="admin-modal-header">
+          <span>Edit Description</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-desc-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <input id="adm-card-id" type="hidden"/>
+          <label class="admin-label">Description / Notes</label>
+          <textarea id="adm-desc" class="admin-textarea admin-textarea-lg" placeholder="Notes, links, character refs…"></textarea>
+          <div id="adm-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-desc-modal')">Cancel</button>
+          <button class="admin-btn-primary" onclick="submitEditDesc()">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  // Live image preview for add-card modal
+  document.getElementById('acm-img').addEventListener('input', function() {
+    const prev = document.getElementById('acm-preview');
+    const img  = document.getElementById('acm-preview-img');
+    if (this.value.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)) {
+      img.src = this.value; prev.style.display = '';
+    } else { prev.style.display = 'none'; }
+  });
+  // Live image preview for attach modal
+  document.getElementById('aam-url').addEventListener('input', function() {
+    const prev = document.getElementById('aam-preview');
+    const img  = document.getElementById('aam-preview-img');
+    if (this.value.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)) {
+      img.src = this.value; prev.style.display = '';
+    } else { prev.style.display = 'none'; }
+  });
+}
+
+function closeAdminModal(id) {
+  const el = document.getElementById(id);
+  if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+}
+
+function openAddCardModal(listId) {
+  ensureAdminModals();
+  document.getElementById('acm-list-id').value = listId;
+  document.getElementById('acm-name').value = '';
+  document.getElementById('acm-desc').value = '';
+  document.getElementById('acm-img').value = '';
+  document.getElementById('acm-preview').style.display = 'none';
+  document.getElementById('acm-error').style.display = 'none';
+  document.getElementById('admin-add-card-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('acm-name').focus(), 50);
+}
+
+async function submitAddCard() {
+  const btn    = document.getElementById('acm-submit');
+  const listId = document.getElementById('acm-list-id').value;
+  const name   = document.getElementById('acm-name').value.trim();
+  const desc   = document.getElementById('acm-desc').value.trim();
+  const imgUrl = document.getElementById('acm-img').value.trim();
+  const errEl  = document.getElementById('acm-error');
+
+  if (!name) { showAdminError(errEl, 'Card name is required.'); return; }
+  errEl.style.display = 'none';
+  btn.textContent = 'Adding…'; btn.disabled = true;
+  try {
+    await createCard(listId, name, desc, imgUrl || null);
+    closeAdminModal('admin-add-card-modal');
+  } catch(e) {
+    showAdminError(errEl, 'Failed to create card: ' + e.message);
+  } finally {
+    btn.textContent = 'Add Card'; btn.disabled = false;
+  }
+}
+
+async function openLabelModal(cardId, currentLabelIds) {
+  ensureAdminModals();
+  await fetchBoardLabels();
+  document.getElementById('alm-card-id').value = cardId;
+  document.getElementById('alm-card-current-labels').textContent = JSON.stringify(currentLabelIds);
+  document.getElementById('alm-error').style.display = 'none';
+
+  const listEl = document.getElementById('alm-label-list');
+  const colors = {
+    green:'#3a8a3a', yellow:'#b8a020', orange:'#c07010',
+    red:'#a01818', purple:'#7a3aaa', blue:'#1a4a9a',
+    sky:'#1a90a8', lime:'#3aaa6a', pink:'#b840a0', black:'#303040'
+  };
+
+  listEl.innerHTML = boardLabels.map(lbl => {
+    const active = currentLabelIds.includes(lbl.id);
+    const bg = colors[lbl.color] || '#888';
+    return `<button class="admin-label-toggle ${active ? 'active' : ''}"
+      style="--lbl-color:${bg}"
+      data-label-id="${lbl.id}"
+      data-active="${active}"
+      onclick="toggleLabelOnCard('${cardId}', '${lbl.id}', this)">
+      <span class="admin-label-dot"></span>
+      ${esc(lbl.name || lbl.color || '(unnamed)')}
+      <span class="admin-label-check">${active ? '✓' : ''}</span>
+    </button>`;
+  }).join('') || '<p class="admin-hint-text">No labels found on this board.</p>';
+
+  document.getElementById('admin-label-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+async function toggleLabelOnCard(cardId, labelId, btnEl) {
+  const isActive = btnEl.dataset.active === 'true';
+  const errEl = document.getElementById('alm-error');
+  btnEl.disabled = true;
+  try {
+    if (isActive) {
+      await removeLabelFromCard(cardId, labelId);
+      btnEl.classList.remove('active');
+      btnEl.dataset.active = 'false';
+      btnEl.querySelector('.admin-label-check').textContent = '';
+    } else {
+      await addLabelToCard(cardId, labelId);
+      btnEl.classList.add('active');
+      btnEl.dataset.active = 'true';
+      btnEl.querySelector('.admin-label-check').textContent = '✓';
+    }
+    errEl.style.display = 'none';
+  } catch(e) {
+    showAdminError(errEl, 'Failed: ' + e.message);
+  } finally {
+    btnEl.disabled = false;
+  }
+}
+
+function openAttachModal(cardId) {
+  ensureAdminModals();
+  document.getElementById('aam-card-id').value = cardId;
+  document.getElementById('aam-url').value = '';
+  document.getElementById('aam-name').value = '';
+  document.getElementById('aam-preview').style.display = 'none';
+  document.getElementById('aam-error').style.display = 'none';
+  document.getElementById('admin-attach-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('aam-url').focus(), 50);
+}
+
+async function submitAddAttachment() {
+  const cardId = document.getElementById('aam-card-id').value;
+  const url    = document.getElementById('aam-url').value.trim();
+  const name   = document.getElementById('aam-name').value.trim();
+  const errEl  = document.getElementById('aam-error');
+  if (!url) { showAdminError(errEl, 'URL is required.'); return; }
+  errEl.style.display = 'none';
+  try {
+    await addAttachmentToCard(cardId, url, name);
+    closeAdminModal('admin-attach-modal');
+  } catch(e) {
+    showAdminError(errEl, 'Failed: ' + e.message);
+  }
+}
+
+function openEditDescModal(cardId, currentDesc) {
+  ensureAdminModals();
+  document.getElementById('adm-card-id').value = cardId;
+  document.getElementById('adm-desc').value = currentDesc || '';
+  document.getElementById('adm-error').style.display = 'none';
+  document.getElementById('admin-desc-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('adm-desc').focus(), 50);
+}
+
+async function submitEditDesc() {
+  const cardId = document.getElementById('adm-card-id').value;
+  const desc   = document.getElementById('adm-desc').value;
+  const errEl  = document.getElementById('adm-error');
+  try {
+    await updateCardDesc(cardId, desc);
+    closeAdminModal('admin-desc-modal');
+  } catch(e) {
+    showAdminError(errEl, 'Failed: ' + e.message);
+  }
+}
+
+async function confirmDeleteCard(cardId, cardName) {
+  if (!confirm(`Delete card "${cardName}"?\nThis cannot be undone.`)) return;
+  try {
+    await deleteCard(cardId);
+  } catch(e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+
+function showAdminError(el, msg) {
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+/* ════════════════════════════════
    LOAD TRELLO QUEUE
 ════════════════════════════════ */
 async function loadQueue() {
@@ -121,14 +567,13 @@ async function loadQueue() {
   try {
     const [lRes, cRes] = await Promise.all([
       fetch(`${base}/boards/${boardId}/lists?${auth}&fields=name,id`),
-      fetch(`${base}/boards/${boardId}/cards?${auth}&fields=name,idList,due,labels,url,desc&attachments=true&attachment_fields=url,previews,name,mimeType`)
+      fetch(`${base}/boards/${boardId}/cards?${auth}&fields=name,idList,due,labels,url,desc,id&attachments=true&attachment_fields=url,previews,name,mimeType`)
     ]);
     if (!lRes.ok || !cRes.ok) throw new Error(`HTTP ${lRes.status}`);
 
     const lists = await lRes.json();
     const cards = await cRes.json();
 
-    // Skip the first list entirely, then apply any hideLists filter
     const hideLow = hideLists.map(n => n.toLowerCase());
     const visible = lists
       .slice(1)
@@ -152,15 +597,19 @@ async function loadQueue() {
     visible.forEach(list => {
       const cls = listColours[list.name.toLowerCase()] || 'list-default';
       const lc = byList[list.id] || [];
+      const addBtn = adminMode
+        ? `<button class="admin-add-card-btn" onclick="openAddCardModal('${esc(list.id)}')">+ Add Card</button>`
+        : '';
       html += `<div class="trello-list ${cls}">
         <div class="trello-list-header">
           <span>${esc(list.name)}</span>
           <span class="count">${lc.length}</span>
         </div>
         <div class="trello-cards">${lc.length
-          ? lc.map(buildCard).join('')
+          ? lc.map(c => buildCard(c)).join('')
           : '<span style="font-size:0.68rem;color:var(--faded);font-style:italic;display:block;text-align:center;">— empty —</span>'
         }</div>
+        ${addBtn}
       </div>`;
     });
     html += '</div>';
@@ -178,19 +627,15 @@ async function loadQueue() {
 /* ════════════════════════════════
    LINK EXTRACTION HELPERS
 ════════════════════════════════ */
-// Pull all http(s) URLs out of a string
 function extractLinks(text) {
   if (!text) return [];
   const matches = text.match(/https?:\/\/[^\s\)\]\>\"\']+/g) || [];
-  // Deduplicate
   return [...new Set(matches)];
 }
 
-// Turn a URL into a short human-readable label
 function linkLabel(url) {
   try {
     const u = new URL(url);
-    // Strip www., keep host + truncated path
     const host = u.hostname.replace(/^www\./, '');
     const path = u.pathname.replace(/\/$/, '');
     const label = path ? host + path : host;
@@ -200,7 +645,6 @@ function linkLabel(url) {
   }
 }
 
-// Render a small links section
 function renderLinkPills(links) {
   if (!links.length) return '';
   return `<div class="card-links">${links.map(u =>
@@ -228,7 +672,6 @@ function buildCard(card) {
     due = `<div class="card-due${cls}">Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>`;
   }
 
-  // Image strip from attachments — images are clickable for lightbox
   let imgStrip = '';
   const imageAttachments = (card.attachments || []).filter(a =>
     (a.mimeType && a.mimeType.startsWith('image/')) ||
@@ -245,7 +688,6 @@ function buildCard(card) {
     imgStrip = `<div class="card-img-strip">${imgs}</div>`;
   }
 
-  // Collect links: URLs from description + non-image URL attachments
   const descLinks = extractLinks(card.desc || '');
   const attachLinks = (card.attachments || [])
     .filter(a => !imageAttachments.includes(a) && a.url && a.url.startsWith('http'))
@@ -253,7 +695,6 @@ function buildCard(card) {
   const allLinks = [...new Set([...descLinks, ...attachLinks])];
   const linkPills = renderLinkPills(allLinks);
 
-  // Serialize card data for the detail overlay
   const cardData = JSON.stringify({
     name: card.name,
     desc: card.desc || '',
@@ -269,10 +710,37 @@ function buildCard(card) {
     }))
   }).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 
-  return `<div class="trello-card">
+  // Admin controls
+  const currentLabelIds = JSON.stringify((card.labels || []).map(l => l.id))
+    .replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+  const descEscaped = esc(card.desc || '').replace(/&quot;/g, '\\&quot;');
+
+  const adminControls = adminMode ? `
+    <div class="admin-card-controls">
+      <button class="admin-card-btn admin-card-btn-label"
+        onclick="event.stopPropagation();openLabelModal('${esc(card.id)}', ${currentLabelIds})">
+        ⬛ Labels
+      </button>
+      <button class="admin-card-btn admin-card-btn-attach"
+        onclick="event.stopPropagation();openAttachModal('${esc(card.id)}')">
+        🖼 Attach
+      </button>
+      <button class="admin-card-btn admin-card-btn-desc"
+        onclick="event.stopPropagation();openEditDescModal('${esc(card.id)}', '${esc(card.desc || '')}')">
+        ✏ Notes
+      </button>
+      <button class="admin-card-btn admin-card-btn-delete"
+        onclick="event.stopPropagation();confirmDeleteCard('${esc(card.id)}', '${esc(card.name)}')">
+        🗑
+      </button>
+    </div>` : '';
+
+  return `<div class="trello-card ${adminMode ? 'admin-card-mode' : ''}">
     ${labels}${imgStrip}
     <div class="card-name">${esc(card.name)}</div>
     ${due}
+    ${linkPills}
+    ${adminControls}
     <div class="card-footer-row">
       <button class="card-details-btn" onclick="event.stopPropagation();openCardDetail(this)" data-card="${cardData}">Show Details</button>
       ${card.url ? `<a class="card-trello-link" href="${esc(card.url)}" target="_blank" onclick="event.stopPropagation()">Trello ↗</a>` : ''}
@@ -296,10 +764,7 @@ function openLightbox(src) {
     document.body.appendChild(lb);
   }
   const img = lb.querySelector('.lb-img');
-  // Clear src first to prevent the browser from re-firing the cached image
-  // and re-triggering the pop animation on the previous image
   img.src = '';
-  // Force a reflow so the animation re-triggers cleanly on the new src
   img.classList.remove('lb-anim');
   void img.offsetWidth;
   img.classList.add('lb-anim');
@@ -393,7 +858,6 @@ function openCardDetail(btn) {
   overlay.classList.add('open');
   document.body.style.overflow = 'hidden';
 
-  // fade in images
   overlay.querySelectorAll('.cd-img').forEach(img => {
     if (img.complete) img.classList.add('loaded');
     else img.addEventListener('load', () => img.classList.add('loaded'), { once: true });
@@ -406,9 +870,13 @@ function closeCardDetail() {
   document.body.style.overflow = '';
 }
 
-// Close overlays on Escape
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeLightbox(); closeCardDetail(); }
+  if (e.key === 'Escape') {
+    closeLightbox();
+    closeCardDetail();
+    ['admin-add-card-modal','admin-label-modal','admin-attach-modal','admin-desc-modal']
+      .forEach(id => closeAdminModal(id));
+  }
 });
 
 function esc(s) {
@@ -448,7 +916,6 @@ buildGallery(ART_IMAGES,    'art-thumbs',    'art-main-img');
 buildGallery(CUSTOM_IMAGES, 'custom-thumbs', 'custom-main-img');
 loadQueue();
 
-// Fade in card images as they load (queue is injected dynamically)
 const queueObserver = new MutationObserver(() => {
   document.querySelectorAll('.card-img:not(.loaded)').forEach(img => {
     if (img.complete) {

@@ -412,7 +412,13 @@
           <h2><span class="h2-num">07</span> Trade Queue</h2>
           <div class="queue-panel-header">
             <span style="font-size:0.82rem;color:var(--faded);">Live from Trello — <span id="slot-count">—</span> active slots</span>
-            <a class="queue-link" href="https://trello.com/b/gsqAd4Xw" target="_blank">Full Board ↗</a>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <button id="admin-toggle-btn" class="admin-toggle-btn" onclick="toggleAdminMode()">⚙ Admin</button>
+              <a class="queue-link" href="https://trello.com/b/gsqAd4Xw" target="_blank">Full Board ↗</a>
+            </div>
+          </div>
+          <div id="admin-mode-bar" class="admin-mode-bar" style="display:none">
+            ⚙ Admin mode active — you can now add cards, edit labels, attach images &amp; update notes directly to Trello.
           </div>
           <div id="queue-output">
             <div class="queue-loading">
@@ -430,11 +436,11 @@
 <footer>
   <p>
     SlashtheHare &nbsp;·&nbsp;
-    <a href="https://slashthehare.com">slashthehare.com</a>
+    slashthehare.com
     &nbsp;·&nbsp;
-    <a href="https://slashthehare.com/tos.html">Terms of Service</a>
+    Terms of Service
     &nbsp;·&nbsp;
-    <a href="https://slashthehare.github.io/artprefs/">Art Prefs</a>
+    Art Prefs
   </p>
 </footer>
 
