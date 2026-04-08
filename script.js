@@ -291,6 +291,35 @@ async function deleteCard(cardId) {
   refreshQueue();
 }
 
+/* ── Delete an attachment from a card ── */
+async function deleteAttachment(cardId, attachmentId) {
+  await trelloRequest('DELETE', `/cards/${cardId}/attachments/${attachmentId}`);
+  refreshQueue();
+}
+
+/* ── Image order storage (localStorage, keyed by card ID) ── */
+const IMG_ORDER_KEY = 'slash_img_order';
+function getImageOrder(cardId) {
+  try { return JSON.parse(localStorage.getItem(IMG_ORDER_KEY) || '{}')[cardId] || null; }
+  catch { return null; }
+}
+function saveImageOrder(cardId, ids) {
+  try {
+    const all = JSON.parse(localStorage.getItem(IMG_ORDER_KEY) || '{}');
+    all[cardId] = ids;
+    localStorage.setItem(IMG_ORDER_KEY, JSON.stringify(all));
+  } catch {}
+}
+function applyImageOrder(cardId, attachments) {
+  const order = getImageOrder(cardId);
+  if (!order) return attachments;
+  const map = {};
+  attachments.forEach(a => map[a.id] = a);
+  const sorted = order.map(id => map[id]).filter(Boolean);
+  const rest = attachments.filter(a => !order.includes(a.id));
+  return [...sorted, ...rest];
+}
+
 function refreshQueue() {
   document.getElementById('queue-output').innerHTML =
     '<div class="queue-loading"><div class="spinner"></div><br/>Syncing…</div>';
@@ -376,6 +405,26 @@ function ensureAdminModals() {
         <div class="admin-modal-footer">
           <button class="admin-btn-secondary" onclick="closeAdminModal('admin-attach-modal')">Cancel</button>
           <button class="admin-btn-primary" onclick="submitAddAttachment()">Attach</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MANAGE IMAGES MODAL -->
+    <div id="admin-img-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-img-modal')">
+      <div class="admin-modal-panel admin-modal-sm">
+        <div class="admin-modal-header">
+          <span>Manage Images</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-img-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <input id="aim-card-id" type="hidden"/>
+          <p class="admin-hint-text">Drag to reorder · click ✕ to delete. Reorder is saved locally.</p>
+          <div id="aim-image-list" class="aim-image-list"></div>
+          <div id="aim-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-img-modal')">Done</button>
+          <button class="admin-btn-primary" onclick="saveImgOrder()">Save Order</button>
         </div>
       </div>
     </div>
@@ -604,6 +653,108 @@ async function submitAddAttachment() {
   }
 }
 
+/* ── Manage Images modal ── */
+let _aimAttachments = []; // working copy of attachments for the modal
+
+function handleManageImagesClick(btn) {
+  const cardId = btn.dataset.cardId;
+  const attachments = JSON.parse(btn.getAttribute('data-atts').replace(/&quot;/g, '"'));
+  openManageImagesModal(cardId, attachments);
+}
+
+function openManageImagesModal(cardId, attachments) {
+  ensureAdminModals();
+  document.getElementById('aim-card-id').value = cardId;
+  document.getElementById('aim-error').style.display = 'none';
+  // Apply saved order
+  _aimAttachments = applyImageOrder(cardId, attachments);
+  renderAimList();
+  document.getElementById('admin-img-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function renderAimList() {
+  const list = document.getElementById('aim-image-list');
+  list.innerHTML = '';
+  _aimAttachments.forEach((att, i) => {
+    const thumb = (att.previews && att.previews.length)
+      ? att.previews.sort((a, b) => b.width - a.width)[0].url
+      : att.url;
+    const item = document.createElement('div');
+    item.className = 'aim-item';
+    item.draggable = true;
+    item.dataset.idx = i;
+    item.innerHTML = `
+      <span class="aim-drag-handle" title="Drag to reorder">⠿</span>
+      <img class="aim-thumb" src="${esc(thumb)}" alt="${esc(att.name || 'image')}" loading="lazy"/>
+      <span class="aim-name">${esc(att.name || 'Attachment')}</span>
+      <div class="aim-actions">
+        <button class="aim-btn aim-up" title="Move up" onclick="aimMove(${i}, -1)">↑</button>
+        <button class="aim-btn aim-down" title="Move down" onclick="aimMove(${i}, 1)">↓</button>
+        <button class="aim-btn aim-del" title="Delete" onclick="aimDelete('${esc(att.id)}', ${i})">✕</button>
+      </div>
+    `;
+    // Drag-and-drop
+    item.addEventListener('dragstart', e => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', i);
+      item.classList.add('aim-dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('aim-dragging'));
+    item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('aim-over'); });
+    item.addEventListener('dragleave', () => item.classList.remove('aim-over'));
+    item.addEventListener('drop', e => {
+      e.preventDefault();
+      item.classList.remove('aim-over');
+      const from = parseInt(e.dataTransfer.getData('text/plain'));
+      const to   = parseInt(item.dataset.idx);
+      if (from !== to) {
+        const [moved] = _aimAttachments.splice(from, 1);
+        _aimAttachments.splice(to, 0, moved);
+        renderAimList();
+      }
+    });
+    list.appendChild(item);
+  });
+  // Disable first ↑ and last ↓
+  const items = list.querySelectorAll('.aim-item');
+  if (items.length) {
+    items[0].querySelector('.aim-up').disabled = true;
+    items[items.length - 1].querySelector('.aim-down').disabled = true;
+  }
+}
+
+function aimMove(idx, dir) {
+  const target = idx + dir;
+  if (target < 0 || target >= _aimAttachments.length) return;
+  [_aimAttachments[idx], _aimAttachments[target]] = [_aimAttachments[target], _aimAttachments[idx]];
+  renderAimList();
+}
+
+async function aimDelete(attachmentId, idx) {
+  const cardId = document.getElementById('aim-card-id').value;
+  if (!confirm('Delete this image from Trello? This cannot be undone.')) return;
+  const errEl = document.getElementById('aim-error');
+  const btn = document.querySelector(`[data-idx="${idx}"] .aim-del`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    await deleteAttachment(cardId, attachmentId);
+    _aimAttachments.splice(idx, 1);
+    renderAimList();
+    errEl.style.display = 'none';
+  } catch(e) {
+    showAdminError(errEl, 'Delete failed: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+  }
+}
+
+function saveImgOrder() {
+  const cardId = document.getElementById('aim-card-id').value;
+  saveImageOrder(cardId, _aimAttachments.map(a => a.id));
+  closeAdminModal('admin-img-modal');
+  refreshQueue();
+}
+
 function openEditDescModal(cardId, currentDesc) {
   ensureAdminModals();
   document.getElementById('adm-card-id').value = cardId;
@@ -758,10 +909,11 @@ function buildCard(card) {
   }
 
   let imgStrip = '';
-  const imageAttachments = (card.attachments || []).filter(a =>
+  const rawImageAttachments = (card.attachments || []).filter(a =>
     (a.mimeType && a.mimeType.startsWith('image/')) ||
     (a.previews && a.previews.length > 0)
   );
+  const imageAttachments = applyImageOrder(card.id, rawImageAttachments);
   if (imageAttachments.length > 0) {
     const imgs = imageAttachments.map(a => {
       const src = (a.previews && a.previews.length)
@@ -800,6 +952,11 @@ function buildCard(card) {
     .replace(/'/g, '&#39;').replace(/"/g, '&quot;');
   const descEscaped = esc(card.desc || '').replace(/&quot;/g, '\\&quot;');
 
+  const imgAttachData = JSON.stringify(imageAttachments.map(a => ({
+    id: a.id, url: a.url, name: a.name || '',
+    previews: (a.previews || []).map(p => ({ url: p.url, width: p.width }))
+  }))).replace(/"/g, '&quot;');
+
   const adminControls = adminMode ? `
     <div class="admin-card-controls">
       <button class="admin-card-btn admin-card-btn-label"
@@ -810,6 +967,12 @@ function buildCard(card) {
         onclick="event.stopPropagation();openAttachModal('${esc(card.id)}')">
         🖼 Attach
       </button>
+      ${imageAttachments.length ? `<button class="admin-card-btn admin-card-btn-imgs"
+        onclick="event.stopPropagation();handleManageImagesClick(this)"
+        data-card-id="${esc(card.id)}"
+        data-atts="${imgAttachData}">
+        ✏ Images
+      </button>` : ''}
       <button class="admin-card-btn admin-card-btn-desc"
         onclick="event.stopPropagation();openEditDescModal('${esc(card.id)}', '${esc(card.desc || '')}')">
         ✏ Notes
