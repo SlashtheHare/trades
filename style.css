@@ -1452,11 +1452,4 @@ footer a:hover { color: var(--paper-dark); }
   opacity: 0.25;
   cursor: not-allowed;
 }
-.admin-card-btn-imgs {
-  background: color-mix(in srgb, var(--stamp-blue) 20%, transparent);
-  border-color: var(--stamp-blue);
-  color: #7aacff;
-}
-.admin-card-btn-imgs:hover {
-  background: color-mix(in srgb, var(--stamp-blue) 35%, transparent);
-}
+
