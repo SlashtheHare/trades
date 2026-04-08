@@ -148,7 +148,6 @@ function applyAdminMode(active) {
 
 function toggleAdminMode() {
   if (adminMode) {
-    localStorage.removeItem(ADMIN_KEY);
     applyAdminMode(false);
     return;
   }
