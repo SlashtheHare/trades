@@ -973,6 +973,7 @@ footer a:hover { color: var(--paper-dark); }
 .card-links {
   display: flex; flex-wrap: wrap; gap: 0.3rem;
   margin: 0.35rem 0 0.1rem;
+  justify-content: center;
 }
 .card-link-pill {
   display: inline-block;
