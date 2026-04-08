@@ -297,6 +297,17 @@ async function deleteAttachment(cardId, attachmentId) {
   refreshQueue();
 }
 
+/* ── Create a new list on the board ── */
+async function createList(name) {
+  const { boardId } = TRELLO;
+  return await trelloRequest('POST', `/lists`, { name, idBoard: boardId, pos: 'bottom' });
+}
+
+/* ── Move (reorder) a list by setting its position ── */
+async function moveList(listId, pos) {
+  return await trelloRequest('PUT', `/lists/${listId}`, { pos });
+}
+
 /* ── Image order storage (localStorage, keyed by card ID) ── */
 const IMG_ORDER_KEY = 'slash_img_order';
 function getImageOrder(cardId) {
@@ -429,6 +440,25 @@ function ensureAdminModals() {
       </div>
     </div>
 
+    <!-- ADD LIST MODAL -->
+    <div id="admin-add-list-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-add-list-modal')">
+      <div class="admin-modal-panel admin-modal-sm">
+        <div class="admin-modal-header">
+          <span>Add New List</span>
+          <button class="admin-modal-close" onclick="closeAdminModal('admin-add-list-modal')">✕</button>
+        </div>
+        <div class="admin-modal-body">
+          <label class="admin-label">List Name <span class="admin-req">*</span></label>
+          <input id="alim-name" class="admin-input" type="text" placeholder="e.g. In Progress"/>
+          <div id="alim-error" class="admin-error" style="display:none"></div>
+        </div>
+        <div class="admin-modal-footer">
+          <button class="admin-btn-secondary" onclick="closeAdminModal('admin-add-list-modal')">Cancel</button>
+          <button class="admin-btn-primary" id="alim-submit" onclick="submitAddList()">Create List</button>
+        </div>
+      </div>
+    </div>
+
     <!-- EDIT DESC MODAL -->
     <div id="admin-desc-modal" class="admin-modal-backdrop" style="display:none" onclick="if(event.target===this)closeAdminModal('admin-desc-modal')">
       <div class="admin-modal-panel">
@@ -535,6 +565,33 @@ async function submitAddCard() {
     showAdminError(errEl, 'Failed to create card: ' + e.message);
   } finally {
     btn.textContent = 'Add Card'; btn.disabled = false;
+  }
+}
+
+function openAddListModal() {
+  ensureAdminModals();
+  document.getElementById('alim-name').value = '';
+  document.getElementById('alim-error').style.display = 'none';
+  document.getElementById('admin-add-list-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('alim-name').focus(), 50);
+}
+
+async function submitAddList() {
+  const btn   = document.getElementById('alim-submit');
+  const name  = document.getElementById('alim-name').value.trim();
+  const errEl = document.getElementById('alim-error');
+  if (!name) { showAdminError(errEl, 'List name is required.'); return; }
+  errEl.style.display = 'none';
+  btn.textContent = 'Creating…'; btn.disabled = true;
+  try {
+    await createList(name);
+    closeAdminModal('admin-add-list-modal');
+    refreshQueue();
+  } catch(e) {
+    showAdminError(errEl, 'Failed to create list: ' + e.message);
+  } finally {
+    btn.textContent = 'Create List'; btn.disabled = false;
   }
 }
 
@@ -829,16 +886,19 @@ async function loadQueue() {
     if (slotEl) slotEl.textContent = cards.length;
     if (slotElInfo) slotElInfo.textContent = cards.length;
 
-    let html = '<div class="list-group">';
+    let html = '<div class="list-group" id="list-group-root">';
     visible.forEach(list => {
       const cls = listColours[list.name.toLowerCase()] || 'list-default';
       const lc = byList[list.id] || [];
       const addBtn = adminMode
         ? `<button class="admin-add-card-btn" onclick="openAddCardModal('${esc(list.id)}')">+ Add Card</button>`
         : '';
-      html += `<div class="trello-list ${cls}">
+      const dragHandle = adminMode
+        ? `<span class="list-drag-handle" title="Drag to reorder list">⠿</span>`
+        : '';
+      html += `<div class="trello-list ${cls}${adminMode ? ' list-draggable' : ''}" data-list-id="${esc(list.id)}" draggable="${adminMode}">
         <div class="trello-list-header">
-          <span>${esc(list.name)}</span>
+          ${dragHandle}<span>${esc(list.name)}</span>
           <span class="count">${lc.length}</span>
         </div>
         <div class="trello-cards">${lc.length
@@ -849,7 +909,14 @@ async function loadQueue() {
       </div>`;
     });
     html += '</div>';
+    if (adminMode) {
+      html += `<div style="margin-top:1rem;text-align:right;">
+        <button class="admin-add-list-btn" onclick="openAddListModal()">＋ New List</button>
+      </div>`;
+    }
     out.innerHTML = html;
+
+    if (adminMode) initListDragDrop();
 
   } catch (err) {
     console.error(err);
@@ -858,6 +925,55 @@ async function loadQueue() {
       <span style="opacity:0.6;font-size:0.7rem">${esc(err.message)}</span>
     </div>`;
   }
+}
+
+/* ════════════════════════════════
+   LIST DRAG-TO-REORDER
+════════════════════════════════ */
+function initListDragDrop() {
+  const group = document.getElementById('list-group-root');
+  if (!group) return;
+
+  let draggingEl = null;
+
+  group.querySelectorAll('.list-draggable').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      draggingEl = el;
+      el.classList.add('list-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', async () => {
+      el.classList.remove('list-dragging');
+      group.querySelectorAll('.list-draggable').forEach(e => e.classList.remove('list-drag-over'));
+      // Persist new order to Trello
+      const ordered = [...group.querySelectorAll('.list-draggable')];
+      const total = ordered.length;
+      for (let i = 0; i < total; i++) {
+        const lid = ordered[i].dataset.listId;
+        // Trello positions: space them out so there's room between them
+        const pos = (i + 1) * 16384;
+        try { await moveList(lid, pos); } catch(e) { console.warn('Reorder failed', e); }
+      }
+      draggingEl = null;
+    });
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (!draggingEl || draggingEl === el) return;
+      group.querySelectorAll('.list-draggable').forEach(e => e.classList.remove('list-drag-over'));
+      el.classList.add('list-drag-over');
+      // Reorder DOM for visual feedback
+      const els = [...group.querySelectorAll('.list-draggable')];
+      const fromIdx = els.indexOf(draggingEl);
+      const toIdx   = els.indexOf(el);
+      if (fromIdx < toIdx) group.insertBefore(draggingEl, el.nextSibling);
+      else group.insertBefore(draggingEl, el);
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('list-drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.classList.remove('list-drag-over');
+    });
+  });
 }
 
 /* ════════════════════════════════
