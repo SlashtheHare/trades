@@ -210,9 +210,6 @@ async function submitAdminPassword() {
   }
 }
 
-if (localStorage.getItem(ADMIN_KEY) === 'true') {
-  document.addEventListener('DOMContentLoaded', () => applyAdminMode(true));
-}
 
 /* ════════════════════════════════
    TRELLO WRITE HELPERS
