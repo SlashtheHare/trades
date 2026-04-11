@@ -151,10 +151,6 @@ function toggleAdminMode() {
     applyAdminMode(false);
     return;
   }
-  if (localStorage.getItem(ADMIN_KEY) === 'true') {
-    applyAdminMode(true);
-    return;
-  }
   openAdminPasswordModal();
 }
 
@@ -883,8 +879,14 @@ async function loadQueue() {
 
     const slotEl = document.getElementById('slot-count');
     const slotElInfo = document.getElementById('slot-count-info');
-    if (slotEl) slotEl.textContent = cards.length;
-    if (slotElInfo) slotElInfo.textContent = cards.length;
+    const cardsWithImages = cards.filter(c =>
+      (c.attachments || []).some(a =>
+        (a.mimeType && a.mimeType.startsWith('image/')) ||
+        (a.previews && a.previews.length > 0)
+      )
+    );
+    if (slotEl) slotEl.textContent = cardsWithImages.length;
+    if (slotElInfo) slotElInfo.textContent = cardsWithImages.length;
 
     let html = '<div class="list-group" id="list-group-root">';
     visible.forEach(list => {
